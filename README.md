@@ -18,7 +18,7 @@ hxbot is a Haxe-based bot for interacting with the Discord Gateway. This project
 
 Install the library using `haxelib`:
 
-`haxelib git https://github.com/HaxelDev/hxbot.git`
+`haxelib git hxbot https://github.com/HaxelDev/hxbot.git`
 
 ## Usage
 
