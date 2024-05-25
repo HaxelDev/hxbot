@@ -1,0 +1,11 @@
+{
+    "name": "hxbot",
+    "url": "",
+    "license": "MIT",
+    "tags": ["discord", "bot", "api"],
+    "description": "A Haxe library for creating Discord bots",
+    "version": "0.0.1",
+    "releasenote": "Initial release",
+    "contributors": ["HaxelDev"],
+    "dependencies": {}
+}
