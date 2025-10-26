@@ -1,4 +1,4 @@
-package haxe.websocket;
+package websocket;
 
 import haxe.io.Bytes;
 

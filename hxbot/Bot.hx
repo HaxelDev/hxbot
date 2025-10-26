@@ -1,145 +1,336 @@
 package hxbot;
 
+import haxe.Http;
 import haxe.Json;
 import haxe.Timer;
-import haxe.ws.WebSocket;
-import haxe.ws.Types.MessageType;
-import hxbot.events.EventDispatcher;
+import hxbot.data.*;
 
 class Bot {
     public var token:String;
-    public var socket:WebSocket;
-    public var sequence:Int;
+    public var onMessage:Event<Message>;
+    public var onReady:Event<Void>;
+    public var onInteraction:Event<Dynamic>;
 
-    private var eventDispatcher:EventDispatcher;
-    private var heartbeatInterval:Int;
+    private var heartbeatInterval:Float = 0;
+    private var lastSequence:Null<Float> = null;
+    private var ws:Dynamic;
+    private var heartbeatTimer:Timer;
 
-    public function new(token:String) {
+    public var intentsMask:Int;
+    public var baseUrl:String = "https://discord.com/api/v10";
+
+    public function new(token:String, ?intents:Array<Int>) {
         this.token = token;
-        this.sequence = 0;
-        this.eventDispatcher = new EventDispatcher();
-        this.connect();
+
+        this.onMessage = new Event<Message>();
+        this.onReady = new Event<Void>();
+        this.onInteraction = new Event<Dynamic>();
+
+        if (intents != null) {
+            var intentsObj = new Intents(intents);
+            this.intentsMask = intentsObj.getMask();
+        } else {
+            this.intentsMask = new Intents([Intents.GUILDS, Intents.GUILD_MESSAGES, Intents.MESSAGE_CONTENT]).getMask();
+        }
     }
 
-    public function on(event:String, handler:Dynamic->Void):Void {
-        eventDispatcher.register(event, handler);
+    public function startPolling(timeoutSec:Int = 20):Void {
+        initGateway();
     }
 
-    public function connect():Void {
-        Log.info("Starting connection to Discord Gateway...");
-
-        socket = new WebSocket("wss://gateway.discord.gg/?v=6&encoding=json");
-        socket.onmessage = function(type:MessageType) {
-            switch (type) {
-                case StrMessage(content):
-                    haxe.EntryPoint.runInMainThread(onWebSocketMessage.bind(content));
-                case BytesMessage(content):
-                    // gejlon
+    private function initGateway():Void {
+        var url = baseUrl + "/gateway/bot";
+        var http = new Http(url);
+        http.setHeader("Authorization", "Bot " + token);
+        http.onData = (data:String) -> {
+            try {
+                var js = Json.parse(data);
+                var wsUrl:String = js.url;
+                connectWebSocket(wsUrl + "/?v=10&encoding=json");
+            } catch (e:Dynamic) {
+                Sys.println("Parsing gateway info failed: " + e);
+                Timer.delay( () -> initGateway(), 5000 );
             }
         };
-        socket.onopen = function() {
-            onWebSocketOpen();
+        http.onError = (err:String) -> {
+            Sys.println("HTTP error fetching gateway: " + err);
+            Timer.delay( () -> initGateway(), 5000 );
         };
-        socket.onclose = function() {
-            connect();
-        }
-        socket.onerror = function(error) {
-            Log.error("WebSocket error: " + error);
-        };
-
-        sys.thread.Thread.readMessage(true);
+        http.request(false);
     }
 
-    private function onWebSocketOpen():Void {
-        Log.info("Connected to Discord Gateway.");
+    private function connectWebSocket(wsUrl:String):Void {
+        ws = new websocket.WebSocket(wsUrl);
+        ws.onOpen = () -> {
+            // Sys.println("WebSocket opened");
+        };
+        ws.onStringData = (msg:String) -> {
+            var obj = Json.parse(msg);
+            var op:Int = obj.op;
+            var d = obj.d;
+            var t:Dynamic = obj.t;
+            var s:Dynamic = obj.s;
+
+            if (s != null) {
+                lastSequence = Std.parseFloat(Std.string(s));
+            }
+
+            switch (op) {
+                case 10:
+                    heartbeatInterval = d.heartbeat_interval;
+                    startHeartbeat();
+                    sendIdentify();
+                case 0:
+                    switch (t) {
+                        case "READY":
+                            onReady.dispatchVoid();
+                        case "MESSAGE_CREATE":
+                            var m = mapToMessage(d);
+                            onMessage.dispatch(m);
+                        case "INTERACTION_CREATE":
+                            onInteraction.dispatch(d);
+                        default:
+                    }
+                case 1:
+                    sendHeartbeat();
+                case 11:
+                default:
+            }
+        };
+        ws.onClose = (_) -> {
+            // Sys.println("WebSocket closed — reconnecting");
+            if (heartbeatTimer != null) heartbeatTimer.stop();
+            Timer.delay( () -> initGateway(), 5000 );
+        };
+    }
+
+    private function startHeartbeat():Void {
+        sendHeartbeat();
+        heartbeatTimer = new Timer(Std.int(heartbeatInterval));
+        heartbeatTimer.run = () -> {
+            sendHeartbeat();
+        };
+    }
+
+    private function sendHeartbeat():Void {
+        var payload = {
+            op: 1,
+            d: (lastSequence == null ? null : lastSequence)
+        };
+        var json = Json.stringify(payload);
+        ws.sendString(json);
+    }
+
+    private function sendIdentify():Void {
+        var mask = this.intentsMask;
         var payload = {
             op: 2,
             d: {
                 token: token,
-                intents: 513,
+                intents: mask,
                 properties: {
-                    "$os": "hxbot",
+                    "$os": "haxe",
                     "$browser": "hxbot",
                     "$device": "hxbot"
                 }
             }
         };
-        send(payload);
+        var json = Json.stringify(payload);
+        ws.sendString(json);
     }
 
-    private function onWebSocketMessage(message:String):Void {
-        var json = Json.parse(message);
-        var op:Int = json.op;
-        var data:Dynamic = json.d;
-        if (op == 10) {
-            handleHello(json);
-        } else if (op == 11) {
-            Log.info("Heartbeat ACK received.");
-        } else if (op == 0) {
-            handleDispatch(json);
-        } else {
-            Log.error("Unknown opCode: " + op);
+    public function sendMessage(channelId:String, content:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {
+        var url = baseUrl + "/channels/" + channelId + "/messages";
+        var body = { content: content };
+        if (components != null) {
+            Reflect.setProperty(body, "components", components);
         }
+        if (embeds != null) {
+            Reflect.setProperty(body, "embeds", embeds);
+        }
+        request("POST", url, body, (res) -> {
+            if (!res.success) {
+                Sys.println("Failed to send message, error: " + res.error);
+            }
+        });
     }
 
-    private function handleHello(json:Dynamic):Void {
-        Log.info("Received HELLO event from Discord.");
-        this.heartbeatInterval = json.d.heartbeat_interval;
-        sendHeartbeat();
-
-        var payload = {
-            "op": 2,
-            "d": {
-                "token": this.token,
-                "intents": 513,
-                "properties": {
-                    "$os": "linux",
-                    "$browser": "hxbot",
-                    "$device": "desktop"
-                }
+    public function replyMessage(channelId:String, content:String, messageId:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {
+        var url = baseUrl + "/channels/" + channelId + "/messages";
+        var body = {
+            content: content,
+            message_reference: {
+                message_id: messageId
             }
         };
-
-        send(payload);
-        setStatus("online", "Type !help for commands", 3);
-    }
-
-    private function handleDispatch(json:Dynamic):Void {
-        var eventName = json.t;
-        if (eventName == "MESSAGE_CREATE") {
-            // jajca
-        } else {
-            Log.debug("Unhandled event: " + eventName);
+        if (components != null) {
+            Reflect.setProperty(body, "components", components);
         }
+        if (embeds != null) {
+            Reflect.setProperty(body, "embeds", embeds);
+        }
+        request("POST", url, body, (res) -> {
+            if (!res.success) {
+                Sys.println("Failed to reply to message, error: " + res.error);
+            }
+        });
     }
 
-    private function sendHeartbeat():Void {
-        Timer.delay(function() {
-            send({op: 1, d: sequence});
-            Log.info("Sent heartbeat.");
-            sendHeartbeat();
-        }, heartbeatInterval);
+    public function respondInteraction(data:Dynamic, callback:Dynamic->Dynamic):Void {
+        var responseData:Dynamic = callback(data);
+        if (responseData == null) responseData = { content: "" };
+
+        if (Reflect.hasField(responseData, "embeds") && (responseData.embeds == null || responseData.embeds.length == 0))
+            Reflect.deleteField(responseData, "embeds");
+        if (Reflect.hasField(responseData, "components") && (responseData.components == null || responseData.components.length == 0))
+            Reflect.deleteField(responseData, "components");
+
+        if (!Reflect.hasField(responseData, "content") && !Reflect.hasField(responseData, "embeds"))
+            responseData.content = "";
+
+        var body = { type: 4, data: responseData };
+        var jsonBody = Json.stringify(body);
+
+        var url = baseUrl + "/interactions/" + data.id + "/" + data.token + "/callback";
+        var http = new haxe.Http(url);
+        http.setHeader("Authorization", "Bot " + token);
+        http.setHeader("Content-Type", "application/json");
+        http.setPostData(jsonBody);
+
+        http.onError = (e:String) -> Sys.println("Failed to respond to interaction, error: " + e);
+
+        http.request(true);
     }
 
-    private function send(data:Dynamic):Void {
-        var message = Json.stringify(data);
-        socket.send(message);
+    public static function createButton(label:String, customId:String, style:Int = 1, emoji:Null<Dynamic> = null):Dynamic {
+        var btn = {
+            type: 2,
+            style: style,
+            label: label,
+            custom_id: customId
+        };
+        if (emoji != null) Reflect.setProperty(btn, "emoji", emoji);
+        return btn;
     }
 
-    public function setStatus(status:String, activity:String, activityType:Int):Void {
-        var payload = {
-            op: 3,
-            d: {
-                since: null,
-                activities: [{
-                    name: activity,
-                    type: activityType
-                }],
-                status: status,
-                afk: false
+    public static function createActionRow(buttons:Array<Dynamic>):Dynamic {
+        return {
+            type: 1,
+            components: buttons
+        };
+    }
+
+    public static function createEmbed(title:String, description:String, color:Int = 0x00FF00, ?fields:Array<Dynamic> = null):Dynamic {
+        var embed = {
+            title: title,
+            description: description,
+            color: color
+        };
+        if (fields != null) Reflect.setProperty(embed, "fields", fields);
+        return embed;
+    }
+
+    private function request(method:String, url:String, body:Dynamic, callback:Dynamic):Void {
+        var http = new Http(url);
+        http.onData = (data:String) -> {
+            try {
+                var js = Json.parse(data);
+                callback({ success: true, data: js });
+            } catch (e:Dynamic) {
+                callback({ success: false, error: e });
             }
         };
-        send(payload);
-        Log.info("Set bot status to " + status + " with activity: " + activity);
+        http.onError = (e:String) -> {
+            callback({ success: false, error: e });
+        };
+        http.setHeader("Authorization", "Bot " + token);
+        http.setHeader("Content-Type", "application/json");
+
+        var methodBool = switch(method) {
+            case "POST": true;
+            case "PUT": true;
+            case "PATCH": true;
+            default: false;
+        };
+
+        if (methodBool) {
+            http.setPostData(Json.stringify(body));
+        }
+        http.request(methodBool);
+    }
+
+    private function mapToMessage(data:Dynamic):Message {
+        return {
+            id: data.id,
+            channel_id: data.channel_id,
+            guild_id: data.guild_id,
+            author: {
+                id: data.author.id,
+                username: data.author.username,
+                discriminator: data.author.discriminator,
+                avatar: data.author.avatar,
+                bot: data.author.bot
+            },
+            content: data.content,
+            timestamp: data.timestamp,
+            edited_timestamp: data.edited_timestamp,
+            tts: data.tts,
+            mention_everyone: data.mention_everyone,
+            mentions: data.mentions.map((m) -> {
+                return {
+                    id: m.id,
+                    username: m.username,
+                    discriminator: m.discriminator,
+                    avatar: m.avatar
+                };
+            }),
+            mention_roles: data.mention_roles,
+            mention_channels: data.mention_channels,
+            attachments: data.attachments,
+            embeds: data.embeds,
+            components: data.components
+        };
+    }
+
+    private function mapToUser(data:Dynamic):User {
+        return {
+            id: data.id,
+            username: data.username,
+            discriminator: data.discriminator,
+            avatar: data.avatar,
+            bot: data.bot,
+            email: null,
+            verified: false,
+            flags: 0,
+            banner: null,
+            accent_color: null,
+            premium_type: 0,
+            public_flags: 0
+        };
+    }
+
+    private function mapToChannel(data:Dynamic):Channel {
+        return {
+            id: data.id,
+            type: data.type,
+            guild_id: data.guild_id,
+            position: data.position,
+            permission_overwrites: data.permission_overwrites,
+            name: data.name,
+            topic: data.topic,
+            nsfw: data.nsfw,
+            last_message_id: data.last_message_id,
+            bitrate: data.bitrate,
+            user_limit: data.user_limit,
+            rate_limit_per_user: data.rate_limit_per_user,
+            recipients: data.recipients.map(mapToUser),
+            recipient_flags: data.recipient_flags,
+            icon: data.icon,
+            nicks: data.nicks,
+            managed: data.managed,
+            blocked_user_warning_dismissed: data.blocked_user_warning_dismissed,
+            safety_warnings: data.safety_warnings,
+            application_id: data.application_id
+        };
     }
 }
