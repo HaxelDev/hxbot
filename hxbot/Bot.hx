@@ -176,6 +176,75 @@ class Bot {
         });
     }
 
+    public function registerSlashCommand(appId:String, command:Dynamic, ?guildId:String = null):Void {
+        var url = baseUrl + "/applications/" + appId;
+        if (guildId != null) url += "/guilds/" + guildId;
+        url += "/commands";
+        request("POST", url, command, (res) -> {
+            if (!res.success) {
+                Sys.println("Failed to register slash command: " + res.error);
+            }
+        });
+    }
+
+    public function deleteSlashCommand(appId:String, commandId:String, ?guildId:String = null):Void {
+        var url = baseUrl + "/applications/" + appId;
+        if (guildId != null) url += "/guilds/" + guildId;
+        url += "/commands/" + commandId;
+        request("DELETE", url, null, (res) -> {
+            if (!res.success) {
+                Sys.println("Failed to delete slash command: " + res.error);
+            }
+        });
+    }
+
+    public function sendFile(channelId:String, filePath:String, ?content:String = "", ?filename:String = null, ?embeds:Array<Dynamic> = null):Void {
+        if (filename == null) {
+            var parts = filePath.split("/");
+            filename = parts[parts.length - 1];
+        }
+
+        var url = baseUrl + "/channels/" + channelId + "/messages";
+        var bytes = sys.io.File.getBytes(filePath);
+
+        var boundary = "----HxBotBoundary" + Std.int(Math.random() * 100000);
+        var body = new StringBuf();
+
+        var payload = {
+            content: content,
+            embeds: embeds
+        };
+        body.add("--" + boundary + "\r\n");
+        body.add('Content-Disposition: form-data; name="payload_json"\r\n');
+        body.add('Content-Type: application/json\r\n\r\n');
+        body.add(haxe.Json.stringify(payload));
+        body.add("\r\n");
+
+        body.add("--" + boundary + "\r\n");
+        body.add('Content-Disposition: form-data; name="files[0]"; filename="' + filename + '"\r\n');
+        body.add("Content-Type: application/octet-stream\r\n\r\n");
+        var headerBytes = haxe.io.Bytes.ofString(body.toString());
+
+        var footer = "\r\n--" + boundary + "--\r\n";
+        var footerBytes = haxe.io.Bytes.ofString(footer);
+
+        var full = haxe.io.Bytes.alloc(headerBytes.length + bytes.length + footerBytes.length);
+        full.blit(0, headerBytes, 0, headerBytes.length);
+        full.blit(headerBytes.length, bytes, 0, bytes.length);
+        full.blit(headerBytes.length + bytes.length, footerBytes, 0, footerBytes.length);
+
+        var http = new haxe.Http(url);
+        http.setHeader("Authorization", "Bot " + token);
+        http.setHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+        http.setPostBytes(full);
+
+        http.onError = (e:String) -> {
+            Sys.println("Failed to upload file: " + e);
+        };
+
+        http.request(true);
+    }
+
     public function respondInteraction(data:Dynamic, callback:Dynamic->Dynamic):Void {
         var responseData:Dynamic = callback(data);
         if (responseData == null) responseData = { content: "" };

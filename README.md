@@ -38,3 +38,11 @@ class Main {
   }
 }
 ```
+
+---
+
+# 📜 License
+
+[MIT License](LICENSE) © 2025
+Developed by [HaxelDev](https://github.com/HaxelDev)
+
