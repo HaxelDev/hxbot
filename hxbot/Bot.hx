@@ -10,6 +10,8 @@ class Bot {
     public var onMessage:Event<Message>;
     public var onReady:Event<Void>;
     public var onInteraction:Event<Dynamic>;
+    public var onUser:Event<User>;
+    public var onChannel:Event<Channel>;
 
     private var heartbeatInterval:Float = 0;
     private var lastSequence:Null<Float> = null;
@@ -25,6 +27,8 @@ class Bot {
         this.onMessage = new Event<Message>();
         this.onReady = new Event<Void>();
         this.onInteraction = new Event<Dynamic>();
+        this.onUser = new Event<User>();
+        this.onChannel = new Event<Channel>();
 
         if (intents != null) {
             var intentsObj = new Intents(intents);
@@ -89,6 +93,12 @@ class Bot {
                             onMessage.dispatch(m);
                         case "INTERACTION_CREATE":
                             onInteraction.dispatch(d);
+                        case "USER_UPDATE":
+                            var user = mapToUser(d);
+                            onUser.dispatch(user);
+                        case "CHANNEL_UPDATE":
+                            var channel = mapToChannel(d);
+                            onChannel.dispatch(channel);
                         default:
                     }
                 case 1:
@@ -176,24 +186,58 @@ class Bot {
         });
     }
 
-    public function registerSlashCommand(appId:String, command:Dynamic, ?guildId:String = null):Void {
-        var url = baseUrl + "/applications/" + appId;
-        if (guildId != null) url += "/guilds/" + guildId;
-        url += "/commands";
-        request("POST", url, command, (res) -> {
+    public function editMessage(channelId:String, messageId:String, content:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {
+        var url = baseUrl + "/channels/" + channelId + "/messages/" + messageId;
+        var body = { content: content };
+        if (components != null) {
+            Reflect.setProperty(body, "components", components);
+        }
+        if (embeds != null) {
+            Reflect.setProperty(body, "embeds", embeds);
+        }
+        request("PATCH", url, body, (res) -> {
             if (!res.success) {
-                Sys.println("Failed to register slash command: " + res.error);
+                Sys.println("Failed to edit message, error: " + res.error);
             }
         });
     }
 
-    public function deleteSlashCommand(appId:String, commandId:String, ?guildId:String = null):Void {
-        var url = baseUrl + "/applications/" + appId;
-        if (guildId != null) url += "/guilds/" + guildId;
-        url += "/commands/" + commandId;
-        request("DELETE", url, null, (res) -> {
+    public function editReplyMessage(interactionData:Dynamic, content:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {
+        var url = baseUrl + "/webhooks/" + interactionData.application_id + "/" + interactionData.token + "/messages/@original";
+        var body = { content: content };
+        if (components != null) {
+            Reflect.setProperty(body, "components", components);
+        }
+        if (embeds != null) {
+            Reflect.setProperty(body, "embeds", embeds);
+        }
+        request("PATCH", url, body, (res) -> {
             if (!res.success) {
-                Sys.println("Failed to delete slash command: " + res.error);
+                Sys.println("Failed to edit reply message, error: " + res.error);
+            }
+        });
+    }
+
+    public function fetchUser(userId:String, callback:User->Void):Void {
+        var url = baseUrl + "/users/" + userId;
+        request("GET", url, null, (res) -> {
+            if (res.success) {
+                var user = mapToUser(res.data);
+                callback(user);
+            } else {
+                Sys.println("Failed to fetch user: " + res.error);
+            }
+        });
+    }
+
+    public function fetchChannel(channelId:String, callback:Channel->Void):Void {
+        var url = baseUrl + "/channels/" + channelId;
+        request("GET", url, null, (res) -> {
+            if (res.success) {
+                var channel = mapToChannel(res.data);
+                callback(channel);
+            } else {
+                Sys.println("Failed to fetch channel: " + res.error);
             }
         });
     }
@@ -299,6 +343,20 @@ class Bot {
         return embed;
     }
 
+    public function setPresence(status:Status, ?activities:Array<Dynamic>):Void {
+        var payload = {
+            op: 3,
+            d: {
+                since: null,
+                activities: (activities == null ? [] : activities),
+                status: Std.string(status).toLowerCase(),
+                afk: false
+            }
+        };
+        var json = Json.stringify(payload);
+        ws.sendString(json);
+    }
+
     private function request(method:String, url:String, body:Dynamic, callback:Dynamic):Void {
         var http = new Http(url);
         http.onData = (data:String) -> {
@@ -402,4 +460,20 @@ class Bot {
             application_id: data.application_id
         };
     }
+}
+
+enum ActivityType {
+    PLAYING;
+    STREAMING;
+    LISTENING;
+    WATCHING;
+    CUSTOM;
+    COMPETING;
+}
+
+enum Status {
+    ONLINE;
+    DND;
+    IDLE;
+    INVISIBLE;
 }
