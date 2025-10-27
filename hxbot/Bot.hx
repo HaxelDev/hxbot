@@ -10,8 +10,6 @@ class Bot {
     public var onMessage:Event<Message>;
     public var onReady:Event<Void>;
     public var onInteraction:Event<Dynamic>;
-    public var onUser:Event<User>;
-    public var onChannel:Event<Channel>;
 
     private var heartbeatInterval:Float = 0;
     private var lastSequence:Null<Float> = null;
@@ -27,8 +25,6 @@ class Bot {
         this.onMessage = new Event<Message>();
         this.onReady = new Event<Void>();
         this.onInteraction = new Event<Dynamic>();
-        this.onUser = new Event<User>();
-        this.onChannel = new Event<Channel>();
 
         if (intents != null) {
             var intentsObj = new Intents(intents);
@@ -93,12 +89,6 @@ class Bot {
                             onMessage.dispatch(m);
                         case "INTERACTION_CREATE":
                             onInteraction.dispatch(d);
-                        case "USER_UPDATE":
-                            var user = mapToUser(d);
-                            onUser.dispatch(user);
-                        case "CHANNEL_UPDATE":
-                            var channel = mapToChannel(d);
-                            onChannel.dispatch(channel);
                         default:
                     }
                 case 1:
@@ -241,6 +231,9 @@ class Bot {
             }
         });
     }
+
+    // TO DO: Implement command registration and handling
+    public function registerCommand():Void {}
 
     public function sendFile(channelId:String, filePath:String, ?content:String = "", ?filename:String = null, ?embeds:Array<Dynamic> = null):Void {
         if (filename == null) {
