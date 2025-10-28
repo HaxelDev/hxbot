@@ -1,4 +1,18 @@
-# 🧠 hxbot
+# HxBot
+
+[![License: MIT](https://img.shields.io/github/license/Souvic/createmypypackage)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/HaxelDev/hxbot/pulls)
+[![WIP](https://img.shields.io/badge/status-WIP-orange.svg)](https://github.com/HaxelDev/hxbot)
+
+<img src="banner.png" alt="HxBot Logo">
+
+> ⚠️ **Project Status:** Work in Progress  
+> HxBot is currently under active development. Features, structure, and APIs are subject to change.  
+> Contributions, ideas, and feedback are welcome!
+
+---
+
+## 🧠 About
 
 A lightweight Discord bot framework written in [Haxe](https://haxe.org/).  
 Currently a **work-in-progress (WIP)** project aiming to provide a simple and fully functional interface for Discord bots using only Haxe standard libraries.
