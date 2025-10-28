@@ -14,8 +14,8 @@
 
 ## 🧠 About
 
-A lightweight Discord bot framework written in [Haxe](https://haxe.org/).  
-Currently a **work-in-progress (WIP)** project aiming to provide a simple and fully functional interface for Discord bots using only Haxe standard libraries.
+**HxBot** is a Discord bot built with [Haxe](https://haxe.org/) (and optionally integrating with Node.js) designed for modularity, extensibility, and modern Discord interactions.  
+The goal is to provide a flexible base for developing bots using HaxeFlixel-inspired structure and cross-language compatibility.
 
 ---
 
