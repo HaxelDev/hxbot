@@ -293,15 +293,28 @@ class Bot {
         });
     }
 
-    public function fetchRole(guildId:String, roleId:String, callback:Role->Void):Void {
-        var url = baseUrl + "/guilds/" + guildId + "/roles/" + roleId;
+    public function fetchRoles(guildId:String, callback:Array<Role>->Void):Void {
+        var url = baseUrl + "/guilds/" + guildId + "/roles";
         request("GET", url, null, (res) -> {
             if (res.success) {
-                var role = mapToRole(res.data);
-                callback(role);
+                var rolesJson:Array<Dynamic> = res.data;
+                var roles = rolesJson.map(mapToRole);
+                callback(roles);
             } else {
-                Sys.println("Failed to fetch role: " + res.error);
+                Sys.println("Failed to fetch roles: " + res.error);
             }
+        });
+    }
+
+    public function fetchRole(guildId:String, roleId:String, callback:Role->Void):Void {
+        fetchRoles(guildId, function(roles:Array<Role>) {
+            for (role in roles) {
+                if (role.id == roleId) {
+                    callback(role);
+                    return;
+                }
+            }
+            Sys.println("Role not found: " + roleId);
         });
     }
 
