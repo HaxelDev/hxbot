@@ -10,6 +10,7 @@ class Bot {
     public var onMessage:Event<Message>;
     public var onReady:Event<Void>;
     public var onInteraction:Event<Dynamic>;
+    public var onThread:Event<Thread>;
 
     private var heartbeatInterval:Float = 0;
     private var lastSequence:Null<Float> = null;
@@ -25,6 +26,7 @@ class Bot {
         this.onMessage = new Event<Message>();
         this.onReady = new Event<Void>();
         this.onInteraction = new Event<Dynamic>();
+        this.onThread = new Event<Thread>();
 
         if (intents != null) {
             var intentsObj = new Intents(intents);
@@ -89,6 +91,9 @@ class Bot {
                             onMessage.dispatch(m);
                         case "INTERACTION_CREATE":
                             onInteraction.dispatch(d);
+                        case "THREAD_CREATE":
+                            var th = mapToThread(d);
+                            onThread.dispatch(th);
                         default:
                     }
                 case 1:
@@ -208,6 +213,50 @@ class Bot {
         });
     }
 
+    public function createThread(parentChannelId:String, name:String, autoArchiveDuration:Int, ?messageId:String, ?firstMessage:String, callback:Dynamic->Void):Void {
+        var url = baseUrl + "/channels/" + parentChannelId + "/threads";
+        var body = {
+            name: name,
+            auto_archive_duration: autoArchiveDuration
+        };
+        if (messageId != null) {
+            Reflect.setProperty(body, "message_id", messageId);
+        }
+        if (firstMessage != null) {
+            Reflect.setProperty(body, "first_message", firstMessage);
+        }
+        request("POST", url, body, (res) -> {
+            if (res.success) {
+                callback(res.data);
+            } else {
+                Sys.println("createThread failed: " + res.error);
+            }
+        });
+    }
+
+    public function sendThreadMessage(threadChannelId:String, content:String, ?embeds:Array<Dynamic>, ?components:Array<Dynamic>):Void {
+        sendMessage(threadChannelId, content, components, embeds);
+    }
+
+    public function createDM(userId:String, callback:Dynamic->Void):Void {
+        var url = baseUrl + "/users/@me/channels";
+        var body = { recipient_id: userId };
+        request("POST", url, body, (res) -> {
+            if (res.success) {
+                callback(res.data);
+            } else {
+                Sys.println("createDM failed: " + res.error);
+            }
+        });
+    }
+
+    public function sendDM(userId:String, content:String, ?embeds:Array<Dynamic>, ?components:Array<Dynamic>):Void {
+        createDM(userId, (dmChan) -> {
+            var dmId = dmChan.id;
+            sendMessage(dmId, content, components, embeds);
+        });
+    }
+
     public function fetchUser(userId:String, callback:User->Void):Void {
         var url = baseUrl + "/users/" + userId;
         request("GET", url, null, (res) -> {
@@ -232,8 +281,29 @@ class Bot {
         });
     }
 
-    // TO DO: Implement command registration and handling
-    public function registerCommand():Void {}
+    public function fetchGuild(guildId:String, callback:Guild->Void):Void {
+        var url = baseUrl + "/guilds/" + guildId + "?with_counts=true";
+        request("GET", url, null, (res) -> {
+            if (res.success) {
+                var guild = mapToGuild(res.data);
+                callback(guild);
+            } else {
+                Sys.println("Failed to fetch guild: " + res.error);
+            }
+        });
+    }
+
+    public function fetchRole(guildId:String, roleId:String, callback:Role->Void):Void {
+        var url = baseUrl + "/guilds/" + guildId + "/roles/" + roleId;
+        request("GET", url, null, (res) -> {
+            if (res.success) {
+                var role = mapToRole(res.data);
+                callback(role);
+            } else {
+                Sys.println("Failed to fetch role: " + res.error);
+            }
+        });
+    }
 
     public function sendFile(channelId:String, filePath:String, ?content:String = "", ?filename:String = null, ?embeds:Array<Dynamic> = null):Void {
         if (filename == null) {
@@ -451,6 +521,85 @@ class Bot {
             blocked_user_warning_dismissed: data.blocked_user_warning_dismissed,
             safety_warnings: data.safety_warnings,
             application_id: data.application_id
+        };
+    }
+
+    private function mapToGuild(data:Dynamic):Guild {
+        return {
+            id: data.id,
+            name: data.name,
+            icon: data.icon,
+            owner_id: data.owner_id,
+            permissions: data.permissions,
+            afk_channel_id: data.afk_channel_id,
+            afk_timeout: data.afk_timeout,
+            banner: data.banner,
+            description: data.description,
+            preferred_locale: data.preferred_locale,
+            region: data.region,
+            verification_level: data.verification_level,
+            default_message_notifications: data.default_message_notifications,
+            explicit_content_filter: data.explicit_content_filter,
+            features: data.features,
+            mfa_level: data.mfa_level,
+            max_presences: data.max_presences,
+            max_members: data.max_members,
+            premium_tier: data.premium_tier,
+            premium_subscription_count: data.premium_subscription_count,
+            public_updates_channel_id: data.public_updates_channel_id,
+            rules_channel_id: data.rules_channel_id,
+            system_channel_id: data.system_channel_id,
+            system_channel_flags: data.system_channel_flags,
+            widget_enabled: data.widget_enabled,
+            widget_channel_id: data.widget_channel_id,
+            approximate_member_count: data.approximate_member_count,
+            approximate_presence_count: data.approximate_presence_count,
+            joined_at: data.joined_at,
+            large: data.large,
+            unavailable: data.unavailable,
+            member_count: data.member_count
+        };
+    }
+
+    private function mapToThread(data:Dynamic):Thread {
+        return {
+            id: data.id,
+            guild_id: if (Reflect.hasField(data, "guild_id")) data.guild_id else null,
+            parent_id: if (Reflect.hasField(data, "parent_id")) data.parent_id else null,
+            name: data.name,
+            message_count: data.message_count,
+            member_count: data.member_count,
+            owner_id: if (Reflect.hasField(data, "owner_id")) data.owner_id else null,
+            locked: data.locked,
+            invitable: data.invitable,
+            archive_timestamp: data.archive_timestamp,
+            archived: data.archived,
+            auto_archive_duration: data.auto_archive_duration,
+            create_timestamp: data.create_timestamp,
+            applied_tags: data.applied_tags,
+            slowmode_delay: if (Reflect.hasField(data, "rate_limit_per_user")) data.rate_limit_per_user else null,
+            total_message_sent: if (Reflect.hasField(data, "total_message_sent")) data.total_message_sent else 0
+        };
+    }
+
+    private function mapToRole(data:Dynamic):Role {
+        return {
+            id: data.id,
+            name: data.name,
+            color: data.color,
+            hoist: data.hoist,
+            position: data.position,
+            permissions: data.permissions,
+            managed: data.managed,
+            mentionable: data.mentionable,
+            icon: if (Reflect.hasField(data, "icon")) data.icon else null,
+            unicode_emoji: if (Reflect.hasField(data, "unicode_emoji")) data.unicode_emoji else null,
+            guild_id: if (Reflect.hasField(data, "guild_id")) data.guild_id else null,
+            flags: if (Reflect.hasField(data, "flags")) data.flags else null,
+            raw_color: if (Reflect.hasField(data, "raw_color")) data.raw_color else null,
+            raw_permissions: if (Reflect.hasField(data, "raw_permissions")) data.raw_permissions else null,
+            created_at: if (Reflect.hasField(data, "created_at")) data.created_at else null,
+            tags: if (Reflect.hasField(data, "tags")) data.tags else null
         };
     }
 }
