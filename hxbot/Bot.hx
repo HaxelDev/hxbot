@@ -181,36 +181,31 @@ class Bot {
         });
     }
 
-    public function editMessage(channelId:String, messageId:String, content:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {
-        var url = baseUrl + "/channels/" + channelId + "/messages/" + messageId;
-        var body = { content: content };
-        if (components != null) {
-            Reflect.setProperty(body, "components", components);
-        }
-        if (embeds != null) {
-            Reflect.setProperty(body, "embeds", embeds);
-        }
-        request("PATCH", url, body, (res) -> {
-            if (!res.success) {
-                Sys.println("Failed to edit message, error: " + res.error);
-            }
-        });
-    }
+    // TO DO: Implement editMessage
+    public function editMessage(channelId:String, messageId:String, content:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {}
 
-    public function editReplyMessage(interactionData:Dynamic, content:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {
-        var url = baseUrl + "/webhooks/" + interactionData.application_id + "/" + interactionData.token + "/messages/@original";
-        var body = { content: content };
-        if (components != null) {
-            Reflect.setProperty(body, "components", components);
-        }
-        if (embeds != null) {
-            Reflect.setProperty(body, "embeds", embeds);
-        }
-        request("PATCH", url, body, (res) -> {
-            if (!res.success) {
-                Sys.println("Failed to edit reply message, error: " + res.error);
+    public function deleteMessage(channelId:String, messageId:String, callback:Bool->Void):Void {
+        var url = baseUrl + "/channels/" + channelId + "/messages/" + messageId;
+        var http = new haxe.Http(url);
+
+        http.setHeader("Authorization", "Bot " + token);
+        http.setHeader("Accept", "application/json");
+        http.setHeader("Content-Type", "application/json");
+
+        var responseBytes = new haxe.io.BytesOutput();
+
+        http.onStatus = function(status:Int):Void {
+            if (status == 204 || status == 200) {
+                callback(true);
+            } else {
+                callback(false);
             }
-        });
+        };
+        http.onError = function(err:String):Void {
+            Sys.println("deleteMessage HTTP error: " + err);
+            callback(false);
+        };
+        http.customRequest(false, responseBytes, null, "DELETE");
     }
 
     public function createThread(parentChannelId:String, name:String, autoArchiveDuration:Int, ?messageId:String, ?firstMessage:String, callback:Dynamic->Void):Void {
@@ -473,6 +468,11 @@ class Bot {
                 discriminator: data.author.discriminator,
                 avatar: data.author.avatar,
                 bot: data.author.bot
+            },
+            message_reference: {
+                message_id: data.message_reference != null && Reflect.hasField(data.message_reference, "message_id") ? data.message_reference.message_id : null,
+                channel_id: data.message_reference != null && Reflect.hasField(data.message_reference, "channel_id") ? data.message_reference.channel_id : null,
+                guild_id: data.message_reference != null && Reflect.hasField(data.message_reference, "guild_id") ? data.message_reference.guild_id : null
             },
             content: data.content,
             timestamp: data.timestamp,

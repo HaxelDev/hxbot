@@ -15,6 +15,11 @@ typedef Message = {
     timestamp: String,
     ?edited_timestamp: String,
     tts: Bool,
+    message_reference: {
+        ?message_id: String,
+        ?channel_id: String,
+        ?guild_id: String
+    },
     mention_everyone: Bool,
     mentions: Array<{
         id: String,
