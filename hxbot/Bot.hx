@@ -181,8 +181,28 @@ class Bot {
         });
     }
 
-    // TO DO: Implement editMessage
-    public function editMessage(channelId:String, messageId:String, content:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {}
+    public function editMessage(channelId:String, messageId:String, content:String, ?components:Array<Dynamic>, ?embeds:Array<Dynamic>):Void {
+        var url = baseUrl + "/channels/" + channelId + "/messages/" + messageId;
+        var http = new haxe.Http(url);
+        var body = { content: content };
+        if (components != null) {
+            Reflect.setProperty(body, "components", components);
+        }
+        if (embeds != null) {
+            Reflect.setProperty(body, "embeds", embeds);
+        }
+
+        http.setHeader("Authorization", "Bot " + token);
+        http.setHeader("Accept", "application/json");
+        http.setHeader("Content-Type", "application/json");
+
+        var responseBytes = new haxe.io.BytesOutput();
+        http.onError = function(err:String):Void {
+            Sys.println("editMessage HTTP error: " + err);
+        };
+        http.setPostData(Json.stringify(body));
+        http.customRequest(true, responseBytes, null, "PATCH");
+    }
 
     public function deleteMessage(channelId:String, messageId:String, callback:Bool->Void):Void {
         var url = baseUrl + "/channels/" + channelId + "/messages/" + messageId;
@@ -441,6 +461,7 @@ class Bot {
         http.onError = (e:String) -> {
             callback({ success: false, error: e });
         };
+
         http.setHeader("Authorization", "Bot " + token);
         http.setHeader("Content-Type", "application/json");
 
