@@ -20,6 +20,11 @@ class Bot {
     public var intentsMask:Int;
     public var baseUrl:String = "https://discord.com/api/v10";
 
+    public var userCache:Cache<User>;
+    public var channelCache:Cache<Channel>;
+    public var guildCache:Cache<Guild>;
+    public var rolesCache:Cache<Array<Role>>;
+
     public function new(token:String, ?intents:Array<Int>) {
         this.token = token;
 
@@ -27,6 +32,11 @@ class Bot {
         this.onReady = new Event<Void>();
         this.onInteraction = new Event<Dynamic>();
         this.onThread = new Event<Thread>();
+
+        this.userCache = new Cache<User>(5000, 60 * 60 * 1000);
+        this.channelCache = new Cache<Channel>(2000, 30 * 60 * 1000);
+        this.guildCache = new Cache<Guild>(1000, null);
+        this.rolesCache = new Cache<Array<Role>>(5000, 30 * 60 * 1000);
 
         if (intents != null) {
             var intentsObj = new Intents(intents);
@@ -273,10 +283,16 @@ class Bot {
     }
 
     public function fetchUser(userId:String, callback:User->Void):Void {
+        if (userCache.has(userId)) {
+            callback(userCache.get(userId));
+            return;
+        }
+
         var url = baseUrl + "/users/" + userId;
         request("GET", url, null, (res) -> {
             if (res.success) {
                 var user = mapToUser(res.data);
+                userCache.set(userId, user);
                 callback(user);
             } else {
                 Sys.println("Failed to fetch user: " + res.error);
@@ -285,10 +301,17 @@ class Bot {
     }
 
     public function fetchChannel(channelId:String, callback:Channel->Void):Void {
+        // najpierw sprawdź cache
+        if (channelCache.has(channelId)) {
+            callback(channelCache.get(channelId));
+            return;
+        }
+
         var url = baseUrl + "/channels/" + channelId;
         request("GET", url, null, (res) -> {
             if (res.success) {
                 var channel = mapToChannel(res.data);
+                channelCache.set(channelId, channel);
                 callback(channel);
             } else {
                 Sys.println("Failed to fetch channel: " + res.error);
@@ -297,10 +320,16 @@ class Bot {
     }
 
     public function fetchGuild(guildId:String, callback:Guild->Void):Void {
+        if (guildCache.has(guildId)) {
+            callback(guildCache.get(guildId));
+            return;
+        }
+
         var url = baseUrl + "/guilds/" + guildId + "?with_counts=true";
         request("GET", url, null, (res) -> {
             if (res.success) {
                 var guild = mapToGuild(res.data);
+                guildCache.set(guildId, guild);
                 callback(guild);
             } else {
                 Sys.println("Failed to fetch guild: " + res.error);
@@ -309,11 +338,17 @@ class Bot {
     }
 
     public function fetchRoles(guildId:String, callback:Array<Role>->Void):Void {
+        if (rolesCache.has(guildId)) {
+            callback(rolesCache.get(guildId));
+            return;
+        }
+
         var url = baseUrl + "/guilds/" + guildId + "/roles";
         request("GET", url, null, (res) -> {
             if (res.success) {
                 var rolesJson:Array<Dynamic> = res.data;
                 var roles = rolesJson.map(mapToRole);
+                rolesCache.set(guildId, roles);
                 callback(roles);
             } else {
                 Sys.println("Failed to fetch roles: " + res.error);
@@ -467,8 +502,6 @@ class Bot {
 
         var methodBool = switch(method) {
             case "POST": true;
-            case "PUT": true;
-            case "PATCH": true;
             default: false;
         };
 
@@ -635,6 +668,13 @@ class Bot {
             created_at: if (Reflect.hasField(data, "created_at")) data.created_at else null,
             tags: if (Reflect.hasField(data, "tags")) data.tags else null
         };
+    }
+
+    public function clearCache():Void {
+        userCache.clear();
+        channelCache.clear();
+        guildCache.clear();
+        rolesCache.clear();
     }
 }
 
