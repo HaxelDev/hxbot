@@ -282,6 +282,38 @@ class Bot {
         });
     }
 
+    public function registerCommands(appId:String, commands:Array<Dynamic>):Void {
+        var url = baseUrl + "/applications/" + appId + "/commands";
+        var http = new haxe.Http(url);
+
+        http.setHeader("Authorization", "Bot " + token);
+        http.setHeader("Accept", "application/json");
+        http.setHeader("Content-Type", "application/json");
+
+        var responseBytes = new haxe.io.BytesOutput();
+        http.onError = function(err:String):Void {
+            Sys.println("registerCommands HTTP error: " + err);
+        };
+        http.setPostData(Json.stringify(commands));
+        http.customRequest(true, responseBytes, null, "PUT");
+    }
+
+    public function registerGuildCommands(appId:String, guildId:String, commands:Array<Dynamic>):Void {
+        var url = baseUrl + "/applications/" + appId + "/guilds/" + guildId + "/commands";
+        var http = new haxe.Http(url);
+
+        http.setHeader("Authorization", "Bot " + token);
+        http.setHeader("Accept", "application/json");
+        http.setHeader("Content-Type", "application/json");
+
+        var responseBytes = new haxe.io.BytesOutput();
+        http.onError = function(err:String):Void {
+            Sys.println("registerGuildCommands HTTP error: " + err);
+        };
+        http.setPostData(Json.stringify(commands));
+        http.customRequest(true, responseBytes, null, "PUT");
+    }
+
     public function fetchUser(userId:String, callback:User->Void):Void {
         if (userCache.has(userId)) {
             callback(userCache.get(userId));
@@ -467,6 +499,25 @@ class Bot {
         };
         if (fields != null) Reflect.setProperty(embed, "fields", fields);
         return embed;
+    }
+
+    public static function createSlashCommand(name:String, description:String, ?options:Array<Dynamic> = null):Dynamic {
+        var cmd = {
+            name: name,
+            description: description,
+            type: 1
+        };
+        if (options != null) Reflect.setProperty(cmd, "options", options);
+        return cmd;
+    }
+
+    public static function createOption(name:String, description:String, type:Int, required:Bool = false):Dynamic {
+        return {
+            name: name,
+            description: description,
+            type: type,
+            required: required
+        };
     }
 
     public function setPresence(status:Status, ?activities:Array<Dynamic>):Void {
